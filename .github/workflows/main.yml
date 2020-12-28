@@ -1,0 +1,106 @@
+# This is a basic workflow to help you get started with Actions
+
+name: CI
+
+# Controls when the action will run.
+on:
+    # Triggers the workflow on push or pull request events but only for the master branch
+    push:
+        branches: [master]
+        tags:
+            - "v*"
+    pull_request:
+        branches: [master]
+
+    # Allows you to run this workflow manually from the Actions tab
+    workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+    # This workflow contains a single job called "build"
+    build:
+        # The type of runner that the job will run on
+        runs-on: windows-latest
+
+        env:
+            PACKAGE_NAME: Starter
+            PROJECT_DIR: src/Main
+            PROJECT_NAME: Main.csproj
+            SIGNING_CERTIFICATE: Main_TemporaryKey.pfx
+            SOLUTION_PATH: Starter.sln
+
+        # Steps represent a sequence of tasks that will be executed as part of the job
+        steps:
+            - name: Configure page file
+              uses: al-cheb/configure-pagefile-action@v1.2
+              with:
+                  minimum-size: 32GB
+                  maximum-size: 32GB
+                  disk-root: "C:"
+
+            - name: Get tag
+              id: get-tag
+              uses: dawidd6/action-get-tag@v1
+
+            - name: Use tag
+              run: echo ${{steps.get-tag.outputs.tag}}
+
+            - name: Get version
+              id: get-version
+              run: |
+                  ("${{steps.get-tag.outputs.tag}}").Split("v")[1]
+
+            # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+            - uses: actions/checkout@v2
+
+            - name: Update manifest
+              run: |
+                  [xml] $manifest = Get-Content "$env:PROJECT_DIR/Package.appxmanifest"
+                  $manifest.Package.Identity.Version = "${{steps.get-version.outputs.result}}"
+                  $manifest.Save("$env:PROJECT_DIR/Package.appxmanifest")
+
+            - name: Decode certificate
+              run: |
+                  $certificate = [System.Convert]::FromBase64String("${{secrets.BASE64_ENCODED_PFX}}")
+                  $pwd = Get-Location
+                  $path = Join-Path -Path $pwd -ChildPath $env:PROJECT_DIR -AdditionalChildPath $env:SIGNING_CERTIFICATE
+                  [IO.File]::WriteAllBytes($path, $certificate)
+
+            # Add  MsBuild to the PATH: https://github.com/microsoft/setup-msbuild
+            - name: Setup MSBuild
+              uses: microsoft/setup-msbuild@v1.0.2
+
+            - name: Build the solution
+              env:
+                  APPX_BUNDLE: always
+                  APPX_BUNDLE_PLATFORMS: x64|x86|ARM|ARM64
+                  CONFIGURATION: Release
+              run: msbuild $env:SOLUTION_PATH -p:AppxBundle=$env:APPX_BUNDLE;AppxBundlePlatforms=$env:APPX_BUNDLE_PLATFORMS;Configuration=$env:CONFIGURATION;PackageCertificateKeyFile=$env:SIGNING_CERTIFICATE
+
+            - name: Remove the certificate file
+              run: Remove-Item -path $env:SIGNING_CERTIFICATE
+
+            - name: Create artifact
+              run: Compress-Archive -Path "$env:PROJECT_DIR/AppPackages/" -DestinationPath "$env:PROJECT_DIR/Artifacts/$env:PACKAGE_NAME_${{steps.get-version.outputs.result}}.zip"
+
+            - name: Create release
+              id: create-release
+              uses: actions/create-release@v1
+              env:
+                  GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+              with:
+                  tag_name: ${{github.ref}}
+                  release_name: RC ${{steps.getVersion.outputs.result}}
+                  draft: false
+                  prerelease: false
+
+            - name: Upload packages
+              id: upload-packages
+              uses: actions/upload-release-asset@v1
+              env:
+                  GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+              with:
+                  upload_url: ${{steps.create-release.outputs.upload_url}}
+                  asset_path: $env:PROJECT_DIR/Artifacts/$env:PACKAGE_NAME_${{steps.get-version.outputs.result}}.zip
+                  asset_name: $env:PACKAGE_NAME_${{steps.get-version.outputs.result}}.zip
+                  asset_content_type: application/zip
