@@ -1,10 +1,9 @@
-namespace Main.Views
+namespace Main.Views;
+
+public sealed partial class MainPage
 {
-    public sealed partial class MainPage
+    public MainPage()
     {
-        public MainPage()
-        {
-            InitializeComponent();
-        }
+        InitializeComponent();
     }
 }

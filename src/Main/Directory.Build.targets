@@ -1,0 +1,10 @@
+<!--
+~ INTRO:
+~ Directory.Build.targets is imported from Microsoft.Common.targets after importing .targets files from NuGet
+~ packages. So, it can override properties and targets defined in most of the build logic, but sometimes you may need
+~ to customize the project file after the final import.
+~ See: https://docs.microsoft.com/en-us/visualstudio/msbuild/customize-your-build#import-order
+-->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Condition="Exists($([MSBuild]::GetPathOfFileAbove('Directory.Build.targets', '$(MSBuildThisFileDirectory)../')))" Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.targets', '$(MSBuildThisFileDirectory)../'))" />
+</Project>
